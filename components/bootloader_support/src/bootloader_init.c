@@ -231,6 +231,12 @@ static void update_flash_config(const esp_image_header_t* pfhdr)
 
 static void print_flash_info(const esp_image_header_t* phdr)
 {
+    /* modified by xiaomi */
+    ESP_LOGI(TAG, "SPI Flash RID  : 0x%X", g_rom_flashchip.device_id);
+    ESP_LOGI(TAG, "SPI Flash  MF  : 0x%02X", (g_rom_flashchip.device_id >> 16)&0xff);
+    ESP_LOGI(TAG, "SPI Flash  ID  : 0x%04X", g_rom_flashchip.device_id&0xffff);
+    /* modified end */
+
 #if (BOOT_LOG_LEVEL >= BOOT_LOG_LEVEL_NOTICE)
 
     ESP_LOGD(TAG, "magic %02x", phdr->magic );

@@ -2310,6 +2310,10 @@
  */
 #define MBEDTLS_TLS_DEFAULT_ALLOW_SHA1_IN_KEY_EXCHANGE
 
+/* modified by xiaomi */
+#define MBEDTLS_TLS_DEFAULT_ALLOW_SHA1_IN_CERTIFICATES
+/* modified end */
+
 /* \} name SECTION: Module configuration options */
 
 #if defined(TARGET_LIKE_MBED)
