@@ -39,6 +39,8 @@
 #include "esp32h2/rom/spi_flash.h"
 #endif
 
+#include "esp32/rom/spi_flash.h"
+
 static const char TAG[] = "spi_flash";
 
 #ifdef CONFIG_SPI_FLASH_WRITE_CHUNK_SIZE
@@ -48,6 +50,21 @@ static const char TAG[] = "spi_flash";
 #endif // CONFIG_SPI_FLASH_WRITE_CHUNK_SIZE
 
 #define MAX_READ_CHUNK 16384
+
+/* SPI flash controller */
+#define SPIFLASH SPI1
+
+/* SPI commands (actual on-wire commands not SPI controller bitmasks)
+   Suitable for use with the execute_flash_command static function.
+*/
+#define CMD_RDID       0x9F
+#define CMD_WRSR       0x01
+#define CMD_WRSR2      0x31 /* Not all SPI flash uses this command */
+#define CMD_WREN       0x06
+#define CMD_WRDI       0x04
+#define CMD_RDSR       0x05
+#define CMD_RDSR2      0x35 /* Not all SPI flash uses this command */
+#define CMD_OTPEN      0x3A /* Enable OTP mode, not all SPI flash uses this command */
 
 
 #ifdef CONFIG_SPI_FLASH_DANGEROUS_WRITE_ABORTS
@@ -83,9 +100,166 @@ static const char io_mode_str[][IO_STR_LEN] = {
     "opi_dtr",
 };
 
+/* Generic function to use the "user command" SPI controller functionality
+   to send commands to the SPI flash and read the respopnse.
+
+   The command passed here is always the on-the-wire command given to the SPI flash unit.
+*/
+static uint32_t execute_flash_command(uint8_t command, uint32_t mosi_data, uint8_t mosi_len, uint8_t miso_len);
+
+/* dummy_len_plus values defined in ROM for SPI flash configuration */
+extern uint8_t g_rom_spiflash_dummy_len_plus[];
+uint32_t miio_bootloader_read_flash_id()
+{
+    uint32_t id = execute_flash_command(CMD_RDID, 0, 0, 24);
+    id = ((id & 0xff) << 16) | ((id >> 16) & 0xff) | (id & 0xff00);
+    return id;
+}
+
 _Static_assert(sizeof(io_mode_str)/IO_STR_LEN == SPI_FLASH_READ_MODE_MAX, "the io_mode_str should be consistent with the esp_flash_io_mode_t defined in spi_flash_types.h");
 
 esp_err_t esp_flash_read_chip_id(esp_flash_t* chip, uint32_t* flash_id);
+
+static uint32_t IRAM_ATTR execute_flash_command(uint8_t command, uint32_t mosi_data, uint8_t mosi_len, uint8_t miso_len)
+{
+uint32_t old_ctrl_reg = SPIFLASH.ctrl.val;
+SPIFLASH.ctrl.val = SPI_WP_REG_M; // keep WP high while idle, otherwise leave DIO mode
+SPIFLASH.user.usr_dummy = 0;
+SPIFLASH.user.usr_addr = 0;
+SPIFLASH.user.usr_command = 1;
+SPIFLASH.user2.usr_command_bitlen = 7;
+
+SPIFLASH.user2.usr_command_value = command;
+SPIFLASH.user.usr_miso = miso_len > 0;
+SPIFLASH.miso_dlen.usr_miso_dbitlen = miso_len ? (miso_len - 1) : 0;
+SPIFLASH.user.usr_mosi = mosi_len > 0;
+SPIFLASH.mosi_dlen.usr_mosi_dbitlen = mosi_len ? (mosi_len - 1) : 0;
+SPIFLASH.data_buf[0] = mosi_data;
+
+if (g_rom_spiflash_dummy_len_plus[1]) {
+/* When flash pins are mapped via GPIO matrix, need a dummy cycle before reading via MISO */
+if (miso_len > 0) {
+SPIFLASH.user.usr_dummy = 1;
+SPIFLASH.user1.usr_dummy_cyclelen = g_rom_spiflash_dummy_len_plus[1] - 1;
+} else {
+SPIFLASH.user.usr_dummy = 0;
+SPIFLASH.user1.usr_dummy_cyclelen = 0;
+}
+}
+
+SPIFLASH.cmd.usr = 1;
+while(SPIFLASH.cmd.usr != 0)
+{ }
+
+SPIFLASH.ctrl.val = old_ctrl_reg;
+return SPIFLASH.data_buf[0];
+}
+
+// cmd(0x5A) + 24bit address + 8 cycles dummy
+static uint32_t IRAM_ATTR bootloader_flash_read_sfdp(uint32_t sfdp_addr, unsigned int miso_byte_num)
+{
+assert(miso_byte_num <= 4);
+uint8_t command = 0x5A;
+uint8_t miso_len = miso_byte_num * 8;
+uint8_t mosi_len = 0;
+uint32_t mosi_data = 0;
+
+uint32_t old_ctrl_reg = SPIFLASH.ctrl.val;
+SPIFLASH.ctrl.val = SPI_WP_REG_M; // keep WP high while idle, otherwise leave DIO mode
+SPIFLASH.user.usr_dummy = 1;
+SPIFLASH.user1.usr_dummy_cyclelen = 7 + g_rom_spiflash_dummy_len_plus[1];
+SPIFLASH.user.usr_addr = 1;
+SPIFLASH.addr = (sfdp_addr<<8);
+SPIFLASH.user1.usr_addr_bitlen = 23;
+SPIFLASH.user.usr_command = 1;
+SPIFLASH.user2.usr_command_bitlen = 7;
+
+SPIFLASH.user2.usr_command_value = command;
+SPIFLASH.user.usr_miso = miso_len > 0;
+SPIFLASH.miso_dlen.usr_miso_dbitlen = miso_len ? (miso_len - 1) : 0;
+SPIFLASH.user.usr_mosi = mosi_len > 0;
+SPIFLASH.mosi_dlen.usr_mosi_dbitlen = mosi_len ? (mosi_len - 1) : 0;
+SPIFLASH.data_buf[0] = mosi_data;
+
+SPIFLASH.cmd.usr = 1;
+while(SPIFLASH.cmd.usr != 0)
+{ }
+
+SPIFLASH.ctrl.val = old_ctrl_reg;
+uint32_t ret = SPIFLASH.data_buf[0];
+if (miso_len < 32) {
+//set unused bits to 0
+ret &= ~(UINT32_MAX << miso_len);
+}
+return ret;
+}
+
+#define XMC_VENDOR_ID 0x20
+
+//use strict model checking for over-erase issue
+static bool IRAM_ATTR is_xmc_chip_strict(uint32_t rdid)
+{
+uint32_t vendor_id = (rdid >> 16) & 0xFF;
+uint32_t mfid = (rdid >> 8) & 0xFF;
+uint32_t cpid = rdid & 0xFF;
+
+if (vendor_id != XMC_VENDOR_ID) {
+return false;
+}
+
+bool matched = false;
+if (mfid == 0x40) {
+if (cpid >= 0x13 && cpid <= 0x20) {
+matched = true;
+}
+} else if (mfid == 0x41) {
+if (cpid >= 0x17 && cpid <= 0x20) {
+matched = true;
+}
+} else if (mfid == 0x50) {
+if (cpid >= 0x15 && cpid <= 0x16) {
+matched =  true;
+}
+}
+return matched;
+}
+
+esp_err_t IRAM_ATTR app_xmc_flash_overerase_fix()
+{
+    //correct RDID value means the issue doesn't occur
+    if (is_xmc_chip_strict(g_rom_flashchip.device_id)) {
+        return ESP_OK;
+    }
+
+    // Check vendor ID in SFDP registers. If not XMC chip, no need to run the patch
+    uint8_t mf_id = (bootloader_flash_read_sfdp(0x10, 1) & 0xff);
+    if (mf_id != XMC_VENDOR_ID) {
+        return ESP_OK;
+    }
+
+    ESP_EARLY_LOGI(TAG, "XM25QHxxC flash overerase fix11");
+    // Enter DPD
+    execute_flash_command(0xB9, 0, 0, 0);
+    // Enter UDPD
+    execute_flash_command(0x79, 0, 0, 0);
+    // Exit UDPD
+    execute_flash_command(0xFF, 0, 0, 0);
+    // Delay tXUDPD
+    ets_delay_us(2000);
+    // Release Power-down
+    execute_flash_command(0xAB, 0, 0, 0);
+    ets_delay_us(20);
+    // Read flash ID and check
+    g_rom_flashchip.device_id = miio_bootloader_read_flash_id();
+    if (!is_xmc_chip_strict(g_rom_flashchip.device_id)) {
+        // fail
+        ESP_EARLY_LOGE(TAG, "XM25QH32C flash overerase fix fail");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
 
 #ifndef CONFIG_SPI_FLASH_ROM_IMPL
 static esp_err_t spiflash_start_default(esp_flash_t *chip);

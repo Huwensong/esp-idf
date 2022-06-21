@@ -124,6 +124,8 @@ struct esp_flash_t {
  */
 esp_err_t esp_flash_init(esp_flash_t *chip);
 
+esp_err_t app_xmc_flash_overerase_fix(void);
+
 /**
  * Check if appropriate chip driver is set.
  *

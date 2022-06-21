@@ -375,6 +375,11 @@ static void start_cpu0_default(void)
     int cpu_freq = esp_clk_cpu_freq();
     ESP_EARLY_LOGI(TAG, "cpu freq: %d", cpu_freq);
 
+    if (app_xmc_flash_overerase_fix() != ESP_OK) {
+        ESP_EARLY_LOGE(TAG, "failed to fix XMC flash overerase, reboot!");
+        abort();
+    }
+
     // Display information about the current running image.
     if (LOG_LOCAL_LEVEL >= ESP_LOG_INFO) {
         const esp_app_desc_t *app_desc = esp_ota_get_app_description();
