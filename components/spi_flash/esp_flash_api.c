@@ -87,7 +87,7 @@ static uint32_t execute_flash_command(uint8_t command, uint32_t mosi_data, uint8
 
 /* dummy_len_plus values defined in ROM for SPI flash configuration */
 extern uint8_t g_rom_spiflash_dummy_len_plus[];
-uint32_t bootloader_read_flash_id()
+uint32_t miio_bootloader_read_flash_id()
 {
     uint32_t id = execute_flash_command(CMD_RDID, 0, 0, 24);
     id = ((id & 0xff) << 16) | ((id >> 16) & 0xff) | (id & 0xff00);
@@ -228,7 +228,7 @@ esp_err_t IRAM_ATTR app_xmc_flash_overerase_fix()
     execute_flash_command(0xAB, 0, 0, 0);
     ets_delay_us(20);
     // Read flash ID and check
-    g_rom_flashchip.device_id = bootloader_read_flash_id();
+    g_rom_flashchip.device_id = miio_bootloader_read_flash_id();
     if (!is_xmc_chip_strict(g_rom_flashchip.device_id)) {
         // fail
         ESP_EARLY_LOGE(TAG, "XM25QH32C flash overerase fix fail");
