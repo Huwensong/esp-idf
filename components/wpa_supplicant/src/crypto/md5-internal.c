@@ -7,7 +7,6 @@
  */
 
 #include "includes.h"
-
 #include "common.h"
 #include "md5.h"
 #include "md5_i.h"
@@ -28,20 +27,25 @@ typedef struct MD5Context MD5_CTX;
  * @mac: Buffer for the hash
  * Returns: 0 on success, -1 of failure
  */
-int md5_vector(size_t num_elem, const u8 *addr[], const size_t *len, u8 *mac)
-{
-	MD5_CTX ctx;
-	size_t i;
 
-	if (TEST_FAIL())
-		return -1;
-
-	MD5Init(&ctx);
-	for (i = 0; i < num_elem; i++)
-		MD5Update(&ctx, addr[i], len[i]);
-	MD5Final(mac, &ctx);
-	return 0;
-}
+/*
+ * 小米SDK需要调用此文件中的函数
+ * 此函数与"crypto_mbedtls.c"中md5_vector冲突
+ */
+//int md5_vector(size_t num_elem, const u8 *addr[], const size_t *len, u8 *mac)
+//{
+//	MD5_CTX ctx;
+//	size_t i;
+//
+//	if (TEST_FAIL())
+//		return -1;
+//
+//	MD5Init(&ctx);
+//	for (i = 0; i < num_elem; i++)
+//		MD5Update(&ctx, addr[i], len[i]);
+//	MD5Final(mac, &ctx);
+//	return 0;
+//}
 
 
 /* ===== start - public domain MD5 implementation ===== */

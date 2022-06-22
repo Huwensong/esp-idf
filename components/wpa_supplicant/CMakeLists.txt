@@ -91,7 +91,12 @@ if(CONFIG_WPA_MBEDTLS_CRYPTO)
     set(crypto_src
     "src/crypto/crypto_mbedtls.c"
     "src/crypto/crypto_mbedtls-bignum.c"
-    "src/crypto/crypto_mbedtls-ec.c")
+    "src/crypto/crypto_mbedtls-ec.c"
+
+            # Add for Xiaomi
+            "src/crypto/md5-internal.c"
+            # End
+            )
     # Add internal RC4 if RC4 is disabled in mbedtls
     if(CONFIG_MBEDTLS_RC4_DISABLED)
         set(crypto_src ${crypto_src} "src/crypto/rc4.c")
