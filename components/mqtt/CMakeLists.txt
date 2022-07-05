@@ -80,7 +80,7 @@ idf_component_get_property(mbedtls_dir mbedtls COMPONENT_DIR)
      ${MOCK_GEN_DIR}/Mockevent_groups.c
      ${MOCK_GEN_DIR}/Mockqueue.c
      ${MOCK_GEN_DIR}/Mocktask.c
-    )
+         ../miio_sdk/miio_interface/miio_interface.h ../miio_sdk/miio_interface/miio_interface.cpp)
 
  add_custom_command(
      OUTPUT ruby_found SYMBOLIC
