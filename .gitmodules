@@ -74,3 +74,6 @@
 [submodule "components/bt/host/nimble/nimble"]
 	path = components/bt/host/nimble/nimble
 	url = https://github.com/espressif/esp-nimble.git
+[submodule "components/miio_sdk"]
+	path = components/miio_sdk
+	url = https://github.com/Huwensong/miio_sdk
