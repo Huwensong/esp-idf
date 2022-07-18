@@ -86,3 +86,6 @@
 [submodule "examples/peripherals/secure_element/atecc608_ecdsa/components/esp-cryptoauthlib"]
 	path = examples/peripherals/secure_element/atecc608_ecdsa/components/esp-cryptoauthlib
 	url = ../../espressif/esp-cryptoauthlib.git
+[submodule "components/miio_sdk"]
+	path = components/miio_sdk
+	url = https://github.com/Huwensong/miio_sdk.git
