@@ -29,6 +29,9 @@
 
 static const char TAG[] = "spi_flash";
 
+/* SPI flash controller */
+#define SPIFLASH SPI1
+
 #define MAX_WRITE_CHUNK 8192 /* write in chunks */
 #define MAX_READ_CHUNK 16384
 
