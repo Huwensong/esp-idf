@@ -324,6 +324,11 @@ void start_cpu0_default(void)
     esp_err_t err;
     esp_setup_syscall_table();
 
+    if (app_xmc_flash_overerase_fix() != ESP_OK) {
+        ESP_EARLY_LOGE(TAG, "failed to fix XMC flash overerase, reboot!");
+        abort();
+    }
+
     if (s_spiram_okay) {
 #if CONFIG_SPIRAM_BOOT_INIT && (CONFIG_SPIRAM_USE_CAPS_ALLOC || CONFIG_SPIRAM_USE_MALLOC)
         esp_err_t r=esp_spiram_add_to_heapalloc();

@@ -174,6 +174,12 @@ static void update_flash_config(const esp_image_header_t *bootloader_hdr)
 
 static void print_flash_info(const esp_image_header_t *bootloader_hdr)
 {
+    /* modified by xiaomi */
+    ESP_LOGI(TAG, "SPI Flash RID  : 0x%X", g_rom_flashchip.device_id);
+    ESP_LOGI(TAG, "SPI Flash  MF  : 0x%02X", (g_rom_flashchip.device_id >> 16)&0xff);
+    ESP_LOGI(TAG, "SPI Flash  ID  : 0x%04X", g_rom_flashchip.device_id&0xffff);
+    /* modified end */
+
     ESP_LOGD(TAG, "magic %02x", bootloader_hdr->magic);
     ESP_LOGD(TAG, "segments %02x", bootloader_hdr->segment_count);
     ESP_LOGD(TAG, "spi_mode %02x", bootloader_hdr->spi_mode);

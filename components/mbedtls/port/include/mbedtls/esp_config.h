@@ -2386,6 +2386,10 @@
  */
 #define MBEDTLS_TLS_DEFAULT_ALLOW_SHA1_IN_KEY_EXCHANGE
 
+/* modified by xiaomi */
+#define MBEDTLS_TLS_DEFAULT_ALLOW_SHA1_IN_CERTIFICATES
+/* modified end */
+
 /**
  * \def MBEDTLS_THREADING_C
  *
