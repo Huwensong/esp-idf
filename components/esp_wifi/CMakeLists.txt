@@ -44,7 +44,7 @@ if(CONFIG_ESP32_WIFI_ENABLED)
         set(blobs coexist core espnow mesh net80211 pp smartconfig wapi)
 
         foreach(blob ${blobs})
-            add_prebuilt_library(${blob} "${CMAKE_CURRENT_SOURCE_DIR}/lib/lib${blob}.a"
+            add_prebuilt_library(${blob} "${CMAKE_CURRENT_SOURCE_DIR}/lib/${target_name}/lib${blob}.a"
                                 REQUIRES ${COMPONENT_NAME})
             set(blob_reqs ${blobs})
             list(REMOVE_ITEM blob_reqs ${blob}) # remove itself from requirements
