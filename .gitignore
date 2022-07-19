@@ -91,3 +91,5 @@ dependencies.lock
 
 # managed_components for examples
 managed_components
+
+tools/kconfig_new/esp-windows-curses/*
