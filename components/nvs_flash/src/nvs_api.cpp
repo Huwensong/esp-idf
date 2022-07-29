@@ -100,23 +100,26 @@ extern "C" void nvs_dump(const char *partName)
 
 extern "C" esp_err_t nvs_flash_init_custom(const char *partName, uint32_t baseSector, uint32_t sectorCount)
 {
-    ESP_LOGD(TAG, "nvs_flash_init_custom partition=%s start=%d count=%d", partName, baseSector, sectorCount);
+    ESP_LOGI(TAG, "nvs_flash_init_custom partition=%s start=%d count=%d", partName, baseSector, sectorCount);
 
     nvs::Storage* new_storage = NULL;
     nvs::Storage* storage = lookup_storage_from_name(partName);
     if (storage == NULL) {
         new_storage = new (std::nothrow) nvs::Storage((const char *)partName);
-
+        ESP_LOGI(TAG, "new nvs storage!!");
         if (!new_storage) return ESP_ERR_NO_MEM;
 
         storage = new_storage;
     }
-
+    ESP_LOGI(TAG, "before storage->init!!");
     esp_err_t err = storage->init(baseSector, sectorCount);
+    ESP_LOGI(TAG, "after storage->init!!");
     if (new_storage != NULL) {
         if (err == ESP_OK) {
             s_nvs_storage_list.push_back(new_storage);
+            ESP_LOGI(TAG, "nvs storage create successfully add list");
         } else {
+            ESP_LOGI(TAG, "nvs storage create failed ");
             delete new_storage;
         }
     }
@@ -194,18 +197,21 @@ extern "C" esp_err_t nvs_flash_init_partition(const char *part_name)
     Lock::init();
     Lock lock;
     nvs::Storage* mStorage;
-
+    ESP_LOGI(TAG, "%s called!!",__FUNCTION__ );
+    ESP_LOGI(TAG, "part_name = %s",part_name);
     mStorage = lookup_storage_from_name(part_name);
     if (mStorage) {
+        ESP_LOGI(TAG, "lookup_storage_from_name() called!!");
         return ESP_OK;
     }
 
     const esp_partition_t* partition = esp_partition_find_first(
             ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, part_name);
     if (partition == NULL) {
+        ESP_LOGI(TAG, "esp_partition_find_first() return NULL!!");
         return ESP_ERR_NOT_FOUND;
     }
-
+    ESP_LOGI(TAG, "part_name = %s , partition->address = %x , partition->size = %x",part_name,partition->address,partition->size);
     return nvs_flash_init_custom(part_name, partition->address / SPI_FLASH_SEC_SIZE,
             partition->size / SPI_FLASH_SEC_SIZE);
 }

@@ -13,18 +13,23 @@
 // limitations under the License.
 #include "nvs_pagemanager.hpp"
 
+#include "esp_log.h"
+static const char* TAG = "nvs_pagemanager";
+
 namespace nvs
 {
 esp_err_t PageManager::load(uint32_t baseSector, uint32_t sectorCount)
 {
+    ESP_LOGI(TAG, "%s called in %s!",__FUNCTION__ ,__FILE__);
     mBaseSector = baseSector;
     mPageCount = sectorCount;
     mPageList.clear();
     mFreePageList.clear();
+    ESP_LOGI(TAG, "before new page" );
     mPages.reset(new (std::nothrow) Page[sectorCount]);
-
+    ESP_LOGI(TAG, "after new page");
     if (!mPages) return ESP_ERR_NO_MEM;
-
+    ESP_LOGI(TAG, "loop tag");
     for (uint32_t i = 0; i < sectorCount; ++i) {
         auto err = mPages[i].load(baseSector + i);
         if (err != ESP_OK) {
@@ -45,7 +50,7 @@ esp_err_t PageManager::load(uint32_t baseSector, uint32_t sectorCount)
             }
         }
     }
-
+    ESP_LOGI(TAG, "empty tag");
     if (mPageList.empty()) {
         mSeqNumber = 0;
         return activatePage();
@@ -57,6 +62,7 @@ esp_err_t PageManager::load(uint32_t baseSector, uint32_t sectorCount)
 
     // if power went out after a new item for the given key was written,
     // but before the old one was erased, we end up with a duplicate item
+    ESP_LOGI(TAG, "lastPage tag");
     Page& lastPage = back();
     size_t lastItemIndex = SIZE_MAX;
     Item item;
@@ -66,6 +72,7 @@ esp_err_t PageManager::load(uint32_t baseSector, uint32_t sectorCount)
         lastItemIndex = itemIndex;
     }
 
+    ESP_LOGI(TAG, "lastItemIndex tag");
     if (lastItemIndex != SIZE_MAX) {
         auto last = PageManager::TPageListIterator(&lastPage);
         TPageListIterator it;
@@ -91,6 +98,7 @@ esp_err_t PageManager::load(uint32_t baseSector, uint32_t sectorCount)
     }
 
     // check if power went out while page was being freed
+    ESP_LOGI(TAG, "being freed tag");
     for (auto it = begin(); it!= end(); ++it) {
         if (it->state() == Page::PageState::FREEING) {
             Page* newPage = &mPageList.back();
@@ -126,6 +134,7 @@ esp_err_t PageManager::load(uint32_t baseSector, uint32_t sectorCount)
     }
 
     // partition should have at least one free page
+    ESP_LOGI(TAG, "free page tag");
     if (mFreePageList.size() == 0) {
         return ESP_ERR_NVS_NO_FREE_PAGES;
     }
