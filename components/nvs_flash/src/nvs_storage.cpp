@@ -18,8 +18,6 @@
 #include <sstream>
 #endif
 
-#include "esp_log.h"
-static const char* TAG = "nvs_storage";
 
 namespace nvs
 {
@@ -93,7 +91,6 @@ void Storage::eraseOrphanDataBlobs(TBlobIndexList& blobIdxList)
 
 esp_err_t Storage::init(uint32_t baseSector, uint32_t sectorCount)
 {
-    ESP_LOGI(TAG, "%s called!",__FUNCTION__ );
     auto err = mPageManager.load(baseSector, sectorCount);
     if (err != ESP_OK) {
         mState = StorageState::INVALID;
@@ -101,7 +98,6 @@ esp_err_t Storage::init(uint32_t baseSector, uint32_t sectorCount)
     }
 
     // load namespaces list
-    ESP_LOGI(TAG, "load namespaces list" );
     clearNamespaces();
     std::fill_n(mNamespaceUsage.data(), mNamespaceUsage.byteSize() / 4, 0);
     for (auto it = mPageManager.begin(); it != mPageManager.end(); ++it) {
@@ -128,7 +124,6 @@ esp_err_t Storage::init(uint32_t baseSector, uint32_t sectorCount)
     mState = StorageState::ACTIVE;
 
     // Populate list of multi-page index entries.
-    ESP_LOGI(TAG, "Populate list of multi-page index entries" );
     TBlobIndexList blobIdxList;
     err = populateBlobIndices(blobIdxList);
     if (err != ESP_OK) {
@@ -137,11 +132,9 @@ esp_err_t Storage::init(uint32_t baseSector, uint32_t sectorCount)
     }
 
     // Remove the entries for which there is no parent multi-page index.
-    ESP_LOGI(TAG, "Remove the entries for which there is no parent multi-page index." );
     eraseOrphanDataBlobs(blobIdxList);
 
     // Purge the blob index list
-    ESP_LOGI(TAG, "Purge the blob index list" );
     blobIdxList.clearAndFreeNodes();
 
 #ifndef ESP_PLATFORM

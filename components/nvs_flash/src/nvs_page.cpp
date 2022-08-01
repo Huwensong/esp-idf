@@ -22,8 +22,6 @@
 
 #include "nvs_ops.hpp"
 
-#include "esp_log.h"
-static const char* TAG = "nvs_page";
 
 namespace nvs
 {
@@ -42,14 +40,11 @@ esp_err_t Page::load(uint32_t sectorNumber)
     mErasedEntryCount = 0;
 
     Header header;
-    ESP_LOGI(TAG, "before spi_flash_read" );
     auto rc = spi_flash_read(mBaseAddress, &header, sizeof(header));
-    ESP_LOGI(TAG, "after spi_flash_read" );
     if (rc != ESP_OK) {
         mState = PageState::INVALID;
         return rc;
     }
-    ESP_LOGI(TAG, "page state jugde" );
     if (header.mState == PageState::UNINITIALIZED) {
         mState = header.mState;
         // check if the whole page is really empty
@@ -84,22 +79,18 @@ esp_err_t Page::load(uint32_t sectorNumber)
             mVersion = header.mVersion;
         }
     }
-    ESP_LOGI(TAG, "mState switch" );
     switch (mState) {
     case PageState::UNINITIALIZED:
-        ESP_LOGI(TAG, "PageState::UNINITIALIZED:" );
         break;
 
     case PageState::FULL:
     case PageState::ACTIVE:
     case PageState::FREEING:
         mLoadEntryTable();
-        ESP_LOGI(TAG, "mLoadEntryTable()" );
         break;
 
     default:
         mState = PageState::CORRUPT;
-        ESP_LOGI(TAG, "PageState::CORRUPT" );
         break;
     }
 
