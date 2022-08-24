@@ -15,11 +15,11 @@
 
 #ifndef _ESP_TIME_H
 #define _ESP_TIME_H
-
+#include_next <time.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
-#include_next <time.h>
+
 
 #define _POSIX_TIMERS 1
 #define CLOCK_MONOTONIC (clockid_t)4
@@ -32,4 +32,5 @@ int clock_getres(clockid_t clock_id, struct timespec *res);
 #ifdef __cplusplus
 }
 #endif
+
 #endif /* _ESP_TIME_H */
