@@ -1358,6 +1358,7 @@ if __name__ == "__main__":
         # option as os.environment['_'] contains "winpty" only when it is run manually from console.
         WINPTY_VAR = "WINPTY"
         WINPTY_EXE = "winpty"
+        os.system("chcp 437")
         if ("MSYSTEM" in os.environ) and (
             not os.environ.get("_", "").endswith(WINPTY_EXE) and WINPTY_VAR not in os.environ
         ):
