@@ -83,6 +83,18 @@ static DRAM_ATTR i2c_dev_t* const I2C[I2C_NUM_MAX] = { &I2C0, &I2C1 };
 #define I2C_FILTER_CYC_NUM_DEF         (7)         /* The number of apb cycles filtered by default*/
 #define I2C_CLR_BUS_SCL_NUM            (9)
 #define I2C_CLR_BUS_HALF_PERIOD_US     (5)
+#define I2C_CLK_FLAG_ERR_STR           "i2c clock choice is invalid, please check flag and frequency"
+#define I2C_LL_INTR_MASK          (0x3fff) /*!< I2C all interrupt bitmap */
+#define I2C_CONTEX_INIT_DEF(uart_num) {\
+    .hal.dev = I2C_LL_GET_HW(uart_num),\
+    .spinlock = portMUX_INITIALIZER_UNLOCKED,\
+    .hw_enabled = false,\
+}
+#define I2C_TRANS_BUF_MINIMUM_SIZE     (sizeof(i2c_cmd_desc_t) + \
+                                        sizeof(i2c_cmd_link_t) * 8) /* It is required to have allocate one i2c_cmd_desc_t per command:
+                                                                     * start + write (device address) + write buffer +
+                                                                     * start + write (device address) + read buffer + read buffer for NACK +
+                                                                     * stop */
 
 typedef struct {
     uint8_t byte_num;  /*!< cmd byte number */
@@ -105,6 +117,9 @@ typedef struct {
     i2c_cmd_link_t* head;     /*!< head of the command link */
     i2c_cmd_link_t* cur;      /*!< last node of the command link */
     i2c_cmd_link_t* free;     /*!< the first node to free of the command link */
+
+    void     *free_buffer;    /*!< pointer to the next free data in user's buffer */
+    uint32_t  free_size;      /*!< remaining size of the user's buffer */
 } i2c_cmd_desc_t;
 
 typedef enum {
@@ -646,62 +661,321 @@ static esp_err_t i2c_hw_fsm_reset(i2c_port_t i2c_num)
     return ESP_OK;
 }
 
-esp_err_t i2c_param_config(i2c_port_t i2c_num, const i2c_config_t* i2c_conf)
+void i2c_hal_set_bus_timing(i2c_hal_context_t *hal, uint32_t scl_freq, i2c_sclk_t src_clk)
 {
-    I2C_CHECK(i2c_num < I2C_NUM_MAX, I2C_NUM_ERROR_STR, ESP_ERR_INVALID_ARG);
-    I2C_CHECK(i2c_conf != NULL, I2C_ADDR_ERROR_STR, ESP_ERR_INVALID_ARG);
-    I2C_CHECK(i2c_conf->mode < I2C_MODE_MAX, I2C_MODE_ERR_STR, ESP_ERR_INVALID_ARG);
+    uint32_t sclk = I2C_LL_CLK_SRC_FREQ(src_clk);
+    i2c_clk_cal_t clk_cal = {0};
+    uint32_t scl_hw_freq = (scl_freq == -1) ? (sclk / 20) : (uint32_t)scl_freq; // FREQ_MAX use the highest freq of the chosen clk.
+    i2c_ll_cal_bus_clk(sclk, scl_hw_freq, &clk_cal);
+    i2c_ll_set_bus_timing(hal->dev, &clk_cal);
+}
 
-    esp_err_t ret = i2c_set_pin(i2c_num, i2c_conf->sda_io_num, i2c_conf->scl_io_num,
-                                i2c_conf->sda_pullup_en, i2c_conf->scl_pullup_en, i2c_conf->mode);
+i2c_cmd_handle_t i2c_cmd_link_create_static(uint8_t* buffer, uint32_t size)
+{
+    if (buffer == NULL || size <= sizeof(i2c_cmd_desc_t)) {
+        return NULL;
+    }
+
+    i2c_cmd_desc_t *cmd_desc = (i2c_cmd_desc_t *) buffer;
+    cmd_desc->head = NULL;
+    cmd_desc->cur = NULL;
+    cmd_desc->free = NULL;
+    cmd_desc->free_buffer = cmd_desc + 1;
+    cmd_desc->free_size = size - sizeof(i2c_cmd_desc_t);
+
+    return (i2c_cmd_handle_t) cmd_desc;
+}
+
+static inline bool i2c_cmd_link_is_static(i2c_cmd_desc_t *cmd_desc)
+{
+    return (cmd_desc->free_buffer != NULL);
+}
+
+void i2c_cmd_link_delete_static(i2c_cmd_handle_t cmd_handle)
+{
+    i2c_cmd_desc_t *cmd = (i2c_cmd_desc_t *) cmd_handle;
+    if (cmd == NULL || !i2c_cmd_link_is_static(cmd)) {
+        return;
+    }
+    /* Currently, this function does nothing, but it is not impossible
+     * that it will change in a near future. */
+}
+
+esp_err_t i2c_master_write_read_device(i2c_port_t i2c_num, uint8_t device_address,
+                                       const uint8_t* write_buffer, size_t write_size,
+                                       uint8_t* read_buffer, size_t read_size,
+                                       TickType_t ticks_to_wait)
+{
+    esp_err_t err = ESP_OK;
+    uint8_t buffer[I2C_TRANS_BUF_MINIMUM_SIZE] = { 0 };
+
+    i2c_cmd_handle_t handle = i2c_cmd_link_create_static(buffer, sizeof(buffer));
+    assert (handle != NULL);
+
+    err = i2c_master_start(handle);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_write_byte(handle, device_address << 1 | I2C_MASTER_WRITE, true);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_write(handle, write_buffer, write_size, true);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_start(handle);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_write_byte(handle, device_address << 1 | I2C_MASTER_READ, true);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_read(handle, read_buffer, read_size, I2C_MASTER_LAST_NACK);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    i2c_master_stop(handle);
+    err = i2c_master_cmd_begin(i2c_num, handle, ticks_to_wait);
+
+end:
+    i2c_cmd_link_delete_static(handle);
+    return err;
+}
+
+esp_err_t i2c_master_read_from_device(i2c_port_t i2c_num, uint8_t device_address,
+                                      uint8_t* read_buffer, size_t read_size,
+                                      TickType_t ticks_to_wait)
+{
+    esp_err_t err = ESP_OK;
+    uint8_t buffer[I2C_TRANS_BUF_MINIMUM_SIZE] = { 0 };
+
+    i2c_cmd_handle_t handle = i2c_cmd_link_create_static(buffer, sizeof(buffer));
+    assert (handle != NULL);
+
+    err = i2c_master_start(handle);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_write_byte(handle, device_address << 1 | I2C_MASTER_READ, true);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    err = i2c_master_read(handle, read_buffer, read_size, I2C_MASTER_LAST_NACK);
+    if (err != ESP_OK) {
+        goto end;
+    }
+
+    i2c_master_stop(handle);
+    err = i2c_master_cmd_begin(i2c_num, handle, ticks_to_wait);
+
+end:
+    i2c_cmd_link_delete_static(handle);
+    return err;
+}
+
+typedef struct
+{
+    uint8_t character;          /*!< I2C source clock characteristic */
+    uint32_t clk_freq;          /*!< I2C source clock frequency */
+} i2c_clk_alloc_t;
+
+#define I2C_CLK_LIMIT_APB                 (80 * 1000 * 1000 / 20)   /*!< Limited by APB, no more than APB/20*/
+// i2c clock characteristic, The order is the same as i2c_sclk_t.
+static i2c_clk_alloc_t i2c_clk_alloc[I2C_SCLK_MAX] = {
+    {0, 0},
+#if SOC_I2C_SUPPORT_APB
+    {0, I2C_CLK_LIMIT_APB},                                                                /*!< I2C APB clock characteristic*/
+#endif
+#if SOC_I2C_SUPPORT_XTAL
+    {0, I2C_CLK_LIMIT_XTAL},                                                               /*!< I2C XTAL characteristic*/
+#endif
+#if SOC_I2C_SUPPORT_RTC
+    {I2C_SCLK_SRC_FLAG_LIGHT_SLEEP | I2C_SCLK_SRC_FLAG_AWARE_DFS, I2C_CLK_LIMIT_RTC},      /*!< I2C 20M RTC characteristic*/
+#endif
+#if SOC_I2C_SUPPORT_REF_TICK
+    {I2C_SCLK_SRC_FLAG_AWARE_DFS, I2C_CLK_LIMIT_REF_TICK},                                 /*!< I2C REF_TICK characteristic*/
+#endif
+};
+
+static i2c_sclk_t i2c_get_clk_src(const uint32_t clk_flags, const uint32_t clk_speed)
+{
+    for (i2c_sclk_t clk = I2C_SCLK_DEFAULT + 1; clk < I2C_SCLK_MAX; clk++) {
+#if CONFIG_IDF_TARGET_ESP32S3
+        if (clk == I2C_SCLK_RTC) { // RTC clock for s3 is unaccessable now.
+            continue;
+        }
+#endif
+        if ( ((clk_flags & i2c_clk_alloc[clk].character) == clk_flags) &&
+             (clk_speed <= i2c_clk_alloc[clk].clk_freq) ) {
+            return clk;
+        }
+    }
+    return I2C_SCLK_MAX;     // flag invalid;
+}
+
+typedef struct {
+    i2c_hal_context_t hal;      /*!< I2C hal context */
+    portMUX_TYPE spinlock;
+    bool hw_enabled;
+#if !SOC_I2C_SUPPORT_HW_CLR_BUS
+    int scl_io_num;
+    int sda_io_num;
+#endif
+} i2c_context_t;
+
+static i2c_context_t i2c_context[I2C_NUM_MAX] = {
+    I2C_CONTEX_INIT_DEF(I2C_NUM_0),
+#if I2C_NUM_MAX > 1
+    I2C_CONTEX_INIT_DEF(I2C_NUM_1),
+#endif
+};
+
+static inline void i2c_ll_disable_intr_mask(i2c_dev_t *hw, uint32_t mask)
+{
+    hw->int_ena.val &= (~mask);
+}
+
+
+void i2c_hal_disable_intr_mask(i2c_hal_context_t *hal, uint32_t mask)
+{
+    i2c_ll_disable_intr_mask(hal->dev, mask);
+}
+
+static inline void i2c_ll_clr_intsts_mask(i2c_dev_t *hw, uint32_t mask)
+{
+    hw->int_clr.val = mask;
+}
+
+void i2c_hal_clr_intsts_mask(i2c_hal_context_t *hal, uint32_t mask)
+{
+    i2c_ll_clr_intsts_mask(hal->dev, mask);
+}
+
+static inline uint32_t i2c_ll_get_hw_version(i2c_dev_t *hw)
+{
+    return hw->date;
+}
+
+static inline void i2c_ll_master_init(i2c_dev_t *hw)
+{
+    typeof(hw->ctr) ctrl_reg;
+    ctrl_reg.val = 0;
+    ctrl_reg.ms_mode = 1;
+    ctrl_reg.sda_force_out = 1;
+    ctrl_reg.scl_force_out = 1;
+    hw->ctr.val = ctrl_reg.val;
+}
+
+static inline void i2c_ll_set_fifo_mode(i2c_dev_t *hw, bool fifo_mode_en)
+{
+    hw->fifo_conf.nonfifo_en = fifo_mode_en ? 0 : 1;
+}
+
+static inline void i2c_ll_set_data_mode(i2c_dev_t *hw, i2c_trans_mode_t tx_mode, i2c_trans_mode_t rx_mode)
+{
+    hw->ctr.tx_lsb_first = tx_mode;
+    hw->ctr.rx_lsb_first = rx_mode;
+}
+
+static inline void i2c_ll_txfifo_rst(i2c_dev_t *hw)
+{
+    hw->fifo_conf.tx_fifo_rst = 1;
+    hw->fifo_conf.tx_fifo_rst = 0;
+}
+
+static inline void i2c_ll_rxfifo_rst(i2c_dev_t *hw)
+{
+    hw->fifo_conf.rx_fifo_rst = 1;
+    hw->fifo_conf.rx_fifo_rst = 0;
+}
+
+
+void i2c_hal_master_init(i2c_hal_context_t *hal, int i2c_num)
+{
+    hal->version = i2c_ll_get_hw_version(hal->dev);
+    i2c_ll_master_init(hal->dev);
+    //Use fifo mode
+    i2c_ll_set_fifo_mode(hal->dev, true);
+    //MSB
+    i2c_ll_set_data_mode(hal->dev, I2C_DATA_MODE_MSB_FIRST, I2C_DATA_MODE_MSB_FIRST);
+    //Reset fifo
+    i2c_ll_txfifo_rst(hal->dev);
+    i2c_ll_rxfifo_rst(hal->dev);
+}
+
+static inline void i2c_ll_set_filter(i2c_dev_t *hw, uint8_t filter_num)
+{
+    if(filter_num > 0) {
+        hw->scl_filter_cfg.thres = filter_num;
+        hw->sda_filter_cfg.thres = filter_num;
+        hw->scl_filter_cfg.en = 1;
+        hw->sda_filter_cfg.en = 1;
+    } else {
+        hw->scl_filter_cfg.en = 0;
+        hw->sda_filter_cfg.en = 0;
+    }
+}
+
+void i2c_hal_set_filter(i2c_hal_context_t *hal, uint8_t filter_num)
+{
+    i2c_ll_set_filter(hal->dev, filter_num);
+}
+
+void i2c_hal_update_config(i2c_hal_context_t *hal)
+{
+}
+
+esp_err_t i2c_param_config(i2c_port_t i2c_num, const i2c_config_t *i2c_conf)
+{
+    i2c_sclk_t src_clk = I2C_SCLK_DEFAULT;
+    esp_err_t ret = ESP_OK;
+
+    ESP_RETURN_ON_FALSE(i2c_num >= 0 && i2c_num < I2C_NUM_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_NUM_ERROR_STR);
+    ESP_RETURN_ON_FALSE(i2c_conf != NULL, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_ADDR_ERROR_STR);
+    ESP_RETURN_ON_FALSE(i2c_conf->mode < I2C_MODE_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_MODE_ERR_STR);
+
+    if (i2c_conf->mode == I2C_MODE_MASTER) {
+        src_clk = i2c_get_clk_src(i2c_conf->clk_flags, i2c_conf->master.clk_speed);
+        ESP_RETURN_ON_FALSE(src_clk != I2C_SCLK_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_CLK_FLAG_ERR_STR);
+    } else {
+#if CONFIG_IDF_TARGET_ESP32S2
+        /* On ESP32-S2, APB clock shall always be used in slave mode as the
+         * other one, I2C_SCLK_REF_TICK, is too slow, even for sampling a
+         * 100KHz SCL. */
+        src_clk = I2C_SCLK_APB;
+#else
+        src_clk = i2c_get_clk_src(i2c_conf->clk_flags, i2c_conf->slave.maximum_speed);
+        ESP_RETURN_ON_FALSE(src_clk != I2C_SCLK_MAX, ESP_ERR_INVALID_ARG, I2C_TAG, I2C_CLK_FLAG_ERR_STR);
+#endif
+    }
+
+    ret = i2c_set_pin(i2c_num, i2c_conf->sda_io_num, i2c_conf->scl_io_num,
+                      i2c_conf->sda_pullup_en, i2c_conf->scl_pullup_en, i2c_conf->mode);
     if (ret != ESP_OK) {
         return ret;
     }
-    // Reset the I2C hardware in case there is a soft reboot.
-    i2c_hw_disable(i2c_num);
     i2c_hw_enable(i2c_num);
-    I2C_ENTER_CRITICAL(&i2c_spinlock[i2c_num]);
-    I2C[i2c_num]->ctr.rx_lsb_first = I2C_DATA_MODE_MSB_FIRST; //set rx data msb first
-    I2C[i2c_num]->ctr.tx_lsb_first = I2C_DATA_MODE_MSB_FIRST; //set tx data msb first
-    I2C[i2c_num]->ctr.ms_mode = i2c_conf->mode; //mode for master or slave
-    I2C[i2c_num]->ctr.sda_force_out = 1; // set open-drain output mode
-    I2C[i2c_num]->ctr.scl_force_out = 1; // set open-drain output mode
-    I2C[i2c_num]->ctr.sample_scl_level = 0; //sample at high level of clock
-
-    if (i2c_conf->mode == I2C_MODE_SLAVE) {  //slave mode
-        I2C[i2c_num]->slave_addr.addr = i2c_conf->slave.slave_addr;
-        I2C[i2c_num]->slave_addr.en_10bit = i2c_conf->slave.addr_10bit_en;
-        I2C[i2c_num]->fifo_conf.nonfifo_en = 0;
-        I2C[i2c_num]->fifo_conf.fifo_addr_cfg_en = 0;
-        I2C[i2c_num]->fifo_conf.rx_fifo_full_thrhd = I2C_FIFO_FULL_THRESH_VAL;
-        I2C[i2c_num]->fifo_conf.tx_fifo_empty_thrhd = I2C_FIFO_EMPTY_THRESH_VAL;
-        I2C[i2c_num]->ctr.trans_start = 0;
-        I2C[i2c_num]->timeout.tout = I2C_SLAVE_TIMEOUT_DEFAULT;
-        //set timing for data
-        I2C[i2c_num]->sda_hold.time = I2C_SLAVE_SDA_HOLD_DEFAULT;
-        I2C[i2c_num]->sda_sample.time = I2C_SLAVE_SDA_SAMPLE_DEFAULT;
-    } else {
-        I2C[i2c_num]->fifo_conf.nonfifo_en = 0;
-        int cycle = (I2C_APB_CLK_FREQ / i2c_conf->master.clk_speed);
-        int half_cycle = cycle / 2;
-        I2C[i2c_num]->timeout.tout = cycle * I2C_MASTER_TOUT_CNUM_DEFAULT;
-        //set timing for data
-        I2C[i2c_num]->sda_hold.time = half_cycle / 2;
-        I2C[i2c_num]->sda_sample.time = half_cycle / 2;
-
-        I2C[i2c_num]->scl_low_period.period = half_cycle;
-        I2C[i2c_num]->scl_high_period.period = half_cycle;
-        //set timing for start signal
-        I2C[i2c_num]->scl_start_hold.time = half_cycle;
-        I2C[i2c_num]->scl_rstart_setup.time = half_cycle;
-        //set timing for stop signal
-        I2C[i2c_num]->scl_stop_hold.time = half_cycle;
-        I2C[i2c_num]->scl_stop_setup.time = half_cycle;
+    I2C_ENTER_CRITICAL(&(i2c_context[i2c_num].spinlock));
+    i2c_hal_disable_intr_mask(&(i2c_context[i2c_num].hal), I2C_LL_INTR_MASK);
+    i2c_hal_clr_intsts_mask(&(i2c_context[i2c_num].hal), I2C_LL_INTR_MASK);
+    {
+        i2c_hal_master_init(&(i2c_context[i2c_num].hal), i2c_num);
         //Default, we enable hardware filter
-        i2c_filter_enable(i2c_num, I2C_FILTER_CYC_NUM_DEF);
+        i2c_hal_set_filter(&(i2c_context[i2c_num].hal), I2C_FILTER_CYC_NUM_DEF);
+        i2c_hal_set_bus_timing(&(i2c_context[i2c_num].hal), i2c_conf->master.clk_speed, src_clk);
     }
-
-    I2C_EXIT_CRITICAL(&i2c_spinlock[i2c_num]);
+    i2c_hal_update_config(&(i2c_context[i2c_num].hal));
+    I2C_EXIT_CRITICAL(&(i2c_context[i2c_num].spinlock));
     return ESP_OK;
 }
 

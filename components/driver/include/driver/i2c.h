@@ -19,6 +19,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 #include <esp_types.h>
 #include "esp_err.h"
 #include "esp_intr_alloc.h"
@@ -29,14 +30,16 @@ extern "C" {
 #include "freertos/queue.h"
 #include "freertos/ringbuf.h"
 #include "driver/gpio.h"
+#include "soc/i2c_struct.h"
 
 #define I2C_APB_CLK_FREQ  APB_CLK_FREQ /*!< I2C source clock is APB clock, 80MHz */
+#define I2C_SCLK_SRC_FLAG_FOR_NOMAL       (0)         /*!< Any one clock source that is available for the specified frequency may be choosen*/
 #define I2C_FIFO_LEN   (32)  /*!< I2C hardware fifo length */
-typedef enum{
+typedef enum {
     I2C_MODE_SLAVE = 0,   /*!< I2C slave mode */
     I2C_MODE_MASTER,      /*!< I2C master mode */
     I2C_MODE_MAX,
-}i2c_mode_t;
+} i2c_mode_t;
 
 typedef enum {
     I2C_MASTER_WRITE = 0,   /*!< I2C write data */
@@ -49,17 +52,102 @@ typedef enum {
     I2C_DATA_MODE_MAX
 } i2c_trans_mode_t;
 
-typedef enum{
+typedef enum {
     I2C_CMD_RESTART = 0,   /*!<I2C restart command */
     I2C_CMD_WRITE,         /*!<I2C write command */
     I2C_CMD_READ,          /*!<I2C read command */
     I2C_CMD_STOP,          /*!<I2C stop command */
     I2C_CMD_END            /*!<I2C end command */
-}i2c_opmode_t;
+} i2c_opmode_t;
 
-typedef enum{
+#define SOC_I2C_SUPPORT_APB     (1)
+
+
+
+typedef enum {
+    I2C_SCLK_DEFAULT = 0,    /*!< I2C source clock not selected*/
+#if SOC_I2C_SUPPORT_APB
+    I2C_SCLK_APB,            /*!< I2C source clock from APB, 80M*/
+#endif
+#if SOC_I2C_SUPPORT_XTAL
+    I2C_SCLK_XTAL,           /*!< I2C source clock from XTAL, 40M */
+#endif
+#if SOC_I2C_SUPPORT_RTC
+    I2C_SCLK_RTC,            /*!< I2C source clock from 8M RTC, 8M */
+#endif
+#if SOC_I2C_SUPPORT_REF_TICK
+    I2C_SCLK_REF_TICK,       /*!< I2C source clock from REF_TICK, 1M */
+#endif
+    I2C_SCLK_MAX,
+} i2c_sclk_t;
+
+typedef struct {
+    i2c_dev_t *dev;
+    uint32_t version;
+} i2c_hal_context_t;
+
+#define I2C_LL_GET_HW(i2c_num)        (((i2c_num) == 0) ? &I2C0 : &I2C1)
+#define I2C_LL_CLK_SRC_FREQ(src_clk)  (80*1000*1000)
+#define I2C_INTERNAL_STRUCT_SIZE (24)
+#define I2C_LINK_RECOMMENDED_SIZE(TRANSACTIONS)     (2 * I2C_INTERNAL_STRUCT_SIZE + I2C_INTERNAL_STRUCT_SIZE * \
+                                                        (5 * (TRANSACTIONS))) /* Make the assumption that each transaction
+                                                                             * of the user is surrounded by a "start", device address
+                                                                             * and a "nack/ack" signal. Allocate one more room for
+                                                                             * "stop" signal at the end.
+                                                                             * Allocate 2 more internal struct size for headers.
+                                                                             */
+#define unlikely(x)    (x)
+#define ESP_RETURN_ON_FALSE(a, err_code, log_tag, format, ...) do {                             \
+        if (unlikely(!(a))) {                                                                   \
+            ESP_LOGE(log_tag, "%s(%d): " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);        \
+            return err_code;                                                                    \
+        }                                                                                       \
+    } while(0)
+
+typedef struct {
+    uint16_t scl_low;           /*!< I2C scl low period */
+    uint16_t scl_high;          /*!< I2C scl hight period */
+    uint16_t sda_hold;          /*!< I2C scl low period */
+    uint16_t sda_sample;        /*!< I2C sda sample time */
+    uint16_t setup;             /*!< I2C start and stop condition setup period */
+    uint16_t hold;              /*!< I2C start and stop condition hold period  */
+    uint16_t tout;              /*!< I2C bus timeout period */
+} i2c_clk_cal_t;
+
+static inline void i2c_ll_cal_bus_clk(uint32_t source_clk, uint32_t bus_freq, i2c_clk_cal_t *clk_cal)
+{
+//    uint32_t half_cycle = source_clk / bus_freq / 2;
+    uint32_t half_cycle = source_clk / 400000 / 2;
+    clk_cal->scl_low = half_cycle;
+    clk_cal->scl_high = half_cycle;
+    clk_cal->sda_hold = half_cycle / 2;
+    clk_cal->sda_sample = clk_cal->scl_high / 2;
+    clk_cal->setup = half_cycle;
+    clk_cal->hold = half_cycle;
+    clk_cal->tout = half_cycle * 20; //default we set the timeout value to 10 bus cycles.
+}
+static inline void i2c_ll_set_bus_timing(i2c_dev_t *hw, i2c_clk_cal_t *bus_cfg)
+{
+    //scl period
+    hw->scl_low_period.period = bus_cfg->scl_low;
+    hw->scl_high_period.period = bus_cfg->scl_high;
+    //sda sample
+    hw->sda_hold.time = bus_cfg->sda_hold;
+    hw->sda_sample.time = bus_cfg->sda_sample;
+    //setup
+    hw->scl_rstart_setup.time = bus_cfg->setup;
+    hw->scl_stop_setup.time = bus_cfg->setup;
+    //hold
+    hw->scl_start_hold.time = bus_cfg->hold;
+    hw->scl_stop_hold.time = bus_cfg->hold;
+    hw->timeout.tout = bus_cfg->tout;
+}
+
+void i2c_hal_set_bus_timing(i2c_hal_context_t *hal, uint32_t scl_freq, i2c_sclk_t src_clk);
+
+typedef enum {
     I2C_NUM_0 = 0,  /*!< I2C port 0 */
-    I2C_NUM_1 ,     /*!< I2C port 1 */
+    I2C_NUM_1,     /*!< I2C port 1 */
     I2C_NUM_MAX
 } i2c_port_t;
 
@@ -79,7 +167,7 @@ typedef enum {
 /**
  * @brief I2C initialization parameters
  */
-typedef struct{
+typedef struct {
     i2c_mode_t mode;       /*!< I2C mode */
     gpio_num_t sda_io_num;        /*!< GPIO number for I2C sda signal */
     gpio_pullup_t sda_pullup_en;  /*!< Internal GPIO pull mode for I2C sda signal*/
@@ -93,12 +181,16 @@ typedef struct{
         struct {
             uint8_t addr_10bit_en;  /*!< I2C 10bit address mode enable for slave mode */
             uint16_t slave_addr;    /*!< I2C address for slave mode */
+            uint32_t maximum_speed;  /*!< I2C expected clock speed from SCL. */
         } slave;
-
+        uint32_t clk_flags;              /*!< Bitwise of ``I2C_SCLK_SRC_FLAG_**FOR_DFS**`` for clk source choice*/
     };
-}i2c_config_t;
+} i2c_config_t;
 
-typedef void* i2c_cmd_handle_t;    /*!< I2C command handle  */
+typedef void *i2c_cmd_handle_t;    /*!< I2C command handle  */
+
+
+i2c_cmd_handle_t i2c_cmd_link_create_static(uint8_t* buffer, uint32_t size);
 
 /**
  * @brief I2C driver install
@@ -123,7 +215,8 @@ typedef void* i2c_cmd_handle_t;    /*!< I2C command handle  */
  *     - ESP_ERR_INVALID_ARG Parameter error
  *     - ESP_FAIL Driver install error
  */
-esp_err_t i2c_driver_install(i2c_port_t i2c_num, i2c_mode_t mode, size_t slv_rx_buf_len, size_t slv_tx_buf_len, int intr_alloc_flags);
+esp_err_t i2c_driver_install(i2c_port_t i2c_num, i2c_mode_t mode, size_t slv_rx_buf_len, size_t slv_tx_buf_len,
+                             int intr_alloc_flags);
 
 /**
  * @brief I2C driver delete
@@ -146,7 +239,18 @@ esp_err_t i2c_driver_delete(i2c_port_t i2c_num);
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_param_config(i2c_port_t i2c_num, const i2c_config_t* i2c_conf);
+esp_err_t i2c_param_config(i2c_port_t i2c_num, const i2c_config_t *i2c_conf);
+
+void i2c_cmd_link_delete_static(i2c_cmd_handle_t cmd_handle);
+
+esp_err_t i2c_master_write_read_device(i2c_port_t i2c_num, uint8_t device_address,
+                                       const uint8_t* write_buffer, size_t write_size,
+                                       uint8_t* read_buffer, size_t read_size,
+                                       TickType_t ticks_to_wait);
+
+esp_err_t i2c_master_read_from_device(i2c_port_t i2c_num, uint8_t device_address,
+                                      uint8_t* read_buffer, size_t read_size,
+                                      TickType_t ticks_to_wait);
 
 /**
  * @brief reset I2C tx hardware fifo
@@ -184,7 +288,8 @@ esp_err_t i2c_reset_rx_fifo(i2c_port_t i2c_num);
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_isr_register(i2c_port_t i2c_num, void (*fn)(void*), void * arg, int intr_alloc_flags, intr_handle_t *handle);
+esp_err_t
+i2c_isr_register(i2c_port_t i2c_num, void (*fn)(void *), void *arg, int intr_alloc_flags, intr_handle_t *handle);
 
 /**
  * @brief to delete and free I2C isr.
@@ -285,7 +390,7 @@ esp_err_t i2c_master_write_byte(i2c_cmd_handle_t cmd_handle, uint8_t data, bool 
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_master_write(i2c_cmd_handle_t cmd_handle, uint8_t* data, size_t data_len, bool ack_en);
+esp_err_t i2c_master_write(i2c_cmd_handle_t cmd_handle, uint8_t *data, size_t data_len, bool ack_en);
 
 /**
  * @brief Queue command for I2C master to read one byte from I2C bus
@@ -303,7 +408,7 @@ esp_err_t i2c_master_write(i2c_cmd_handle_t cmd_handle, uint8_t* data, size_t da
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_master_read_byte(i2c_cmd_handle_t cmd_handle, uint8_t* data, i2c_ack_type_t ack);
+esp_err_t i2c_master_read_byte(i2c_cmd_handle_t cmd_handle, uint8_t *data, i2c_ack_type_t ack);
 
 /**
  * @brief Queue command for I2C master to read data from I2C bus
@@ -322,7 +427,7 @@ esp_err_t i2c_master_read_byte(i2c_cmd_handle_t cmd_handle, uint8_t* data, i2c_a
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_master_read(i2c_cmd_handle_t cmd_handle, uint8_t* data, size_t data_len, i2c_ack_type_t ack);
+esp_err_t i2c_master_read(i2c_cmd_handle_t cmd_handle, uint8_t *data, size_t data_len, i2c_ack_type_t ack);
 
 /**
  * @brief Queue command for I2C master to generate a stop signal
@@ -375,7 +480,7 @@ esp_err_t i2c_master_cmd_begin(i2c_port_t i2c_num, i2c_cmd_handle_t cmd_handle, 
  *     - ESP_FAIL(-1) Parameter error
  *     - Others(>=0) The number of data bytes that pushed to the I2C slave buffer.
  */
-int i2c_slave_write_buffer(i2c_port_t i2c_num, uint8_t* data, int size, TickType_t ticks_to_wait);
+int i2c_slave_write_buffer(i2c_port_t i2c_num, uint8_t *data, int size, TickType_t ticks_to_wait);
 
 /**
  * @brief I2C slave read data from internal buffer. When I2C slave receive data, isr will copy received data
@@ -392,7 +497,7 @@ int i2c_slave_write_buffer(i2c_port_t i2c_num, uint8_t* data, int size, TickType
  *     - ESP_FAIL(-1) Parameter error
  *     - Others(>=0) The number of data bytes that read from I2C slave buffer.
  */
-int i2c_slave_read_buffer(i2c_port_t i2c_num, uint8_t* data, size_t max_size, TickType_t ticks_to_wait);
+int i2c_slave_read_buffer(i2c_port_t i2c_num, uint8_t *data, size_t max_size, TickType_t ticks_to_wait);
 
 /**
  * @brief set I2C master clock period
@@ -418,7 +523,7 @@ esp_err_t i2c_set_period(i2c_port_t i2c_num, int high_period, int low_period);
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_get_period(i2c_port_t i2c_num, int* high_period, int* low_period);
+esp_err_t i2c_get_period(i2c_port_t i2c_num, int *high_period, int *low_period);
 
 /**
  * @brief enable hardware filter on I2C bus
@@ -473,7 +578,7 @@ esp_err_t i2c_set_start_timing(i2c_port_t i2c_num, int setup_time, int hold_time
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_get_start_timing(i2c_port_t i2c_num, int* setup_time, int* hold_time);
+esp_err_t i2c_get_start_timing(i2c_port_t i2c_num, int *setup_time, int *hold_time);
 
 /**
  * @brief set I2C master stop signal timing
@@ -499,7 +604,7 @@ esp_err_t i2c_set_stop_timing(i2c_port_t i2c_num, int setup_time, int hold_time)
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_get_stop_timing(i2c_port_t i2c_num, int* setup_time, int* hold_time);
+esp_err_t i2c_get_stop_timing(i2c_port_t i2c_num, int *setup_time, int *hold_time);
 
 /**
  * @brief set I2C data signal timing
@@ -525,7 +630,7 @@ esp_err_t i2c_set_data_timing(i2c_port_t i2c_num, int sample_time, int hold_time
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_get_data_timing(i2c_port_t i2c_num, int* sample_time, int* hold_time);
+esp_err_t i2c_get_data_timing(i2c_port_t i2c_num, int *sample_time, int *hold_time);
 
 /**
  * @brief set I2C timeout value
@@ -545,7 +650,8 @@ esp_err_t i2c_set_timeout(i2c_port_t i2c_num, int timeout);
  *     - ESP_OK Success
  *     - ESP_ERR_INVALID_ARG Parameter error
  */
-esp_err_t i2c_get_timeout(i2c_port_t i2c_num, int* timeout);
+esp_err_t i2c_get_timeout(i2c_port_t i2c_num, int *timeout);
+
 /**
  * @brief set I2C data transfer mode
  *
