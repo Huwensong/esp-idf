@@ -1244,40 +1244,115 @@ void i2c_cmd_link_delete(i2c_cmd_handle_t cmd_handle)
     return;
 }
 
-static esp_err_t i2c_cmd_link_append(i2c_cmd_handle_t cmd_handle, i2c_cmd_t* cmd)
+
+#define I2C_CMD_USER_ALLOC_ERR_STR     "i2c command link allocation error: the buffer provided is too small."
+
+static inline void i2c_cmd_log_alloc_error(i2c_cmd_desc_t *cmd_desc)
 {
-    i2c_cmd_desc_t* cmd_desc = (i2c_cmd_desc_t*) cmd_handle;
-    if (cmd_desc->head == NULL) {
+    if (i2c_cmd_link_is_static(cmd_desc)) {
+        ESP_LOGE(I2C_TAG, I2C_CMD_USER_ALLOC_ERR_STR);
+    } else {
+        ESP_LOGE(I2C_TAG, I2C_CMD_MALLOC_ERR_STR);
+    }
+}
+
+static esp_err_t i2c_cmd_allocate(i2c_cmd_desc_t *cmd_desc, size_t n, size_t size, void** outptr)
+{
+    esp_err_t err = ESP_OK;
+
+    if (i2c_cmd_link_is_static(cmd_desc)) {
+        const size_t required = n * size;
+        /* User defined buffer.
+         * Check whether there is enough space in the buffer. */
+        if (cmd_desc->free_size < required) {
+            err = ESP_ERR_NO_MEM;
+        } else {
+            /* Allocate the pointer. */
+            *outptr = cmd_desc->free_buffer;
+
+            /* Decrement the free size from the user's bufffer. */
+            cmd_desc->free_buffer += required;
+            cmd_desc->free_size -= required;
+        }
+    } else {
 #if !CONFIG_SPIRAM_USE_MALLOC
-        cmd_desc->head = (i2c_cmd_link_t*) calloc(1, sizeof(i2c_cmd_link_t));
+        *outptr = calloc(n, size);
 #else
-        cmd_desc->head = (i2c_cmd_link_t*) heap_caps_calloc(1, sizeof(i2c_cmd_link_t), MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+        *outptr = heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #endif
-        if (cmd_desc->head == NULL) {
-            ESP_LOGE(I2C_TAG, I2C_CMD_MALLOC_ERR_STR);
-            goto err;
+        if (*outptr == NULL) {
+            err = ESP_FAIL;
+        }
+    }
+
+    return err;
+}
+
+
+static esp_err_t i2c_cmd_link_append(i2c_cmd_handle_t cmd_handle, i2c_cmd_t *cmd)
+{
+    esp_err_t err = ESP_OK;
+    i2c_cmd_desc_t *cmd_desc = (i2c_cmd_desc_t *) cmd_handle;
+
+    assert(cmd_desc != NULL);
+
+    if (cmd_desc->head == NULL) {
+        err = i2c_cmd_allocate(cmd_desc, 1, sizeof(i2c_cmd_link_t), (void**) &cmd_desc->head);
+        if (err != ESP_OK) {
+            i2c_cmd_log_alloc_error(cmd_desc);
+            return err;
         }
         cmd_desc->cur = cmd_desc->head;
         cmd_desc->free = cmd_desc->head;
     } else {
-#if !CONFIG_SPIRAM_USE_MALLOC
-        cmd_desc->cur->next = (i2c_cmd_link_t*) calloc(1, sizeof(i2c_cmd_link_t));
-#else
-        cmd_desc->cur->next = (i2c_cmd_link_t*) heap_caps_calloc(1, sizeof(i2c_cmd_link_t), MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
-#endif
-        if (cmd_desc->cur->next == NULL) {
-            ESP_LOGE(I2C_TAG, I2C_CMD_MALLOC_ERR_STR);
-            goto err;
+        assert(cmd_desc->cur != NULL);
+        err = i2c_cmd_allocate(cmd_desc, 1, sizeof(i2c_cmd_link_t), (void**) &cmd_desc->cur->next);
+        if (err != ESP_OK) {
+            i2c_cmd_log_alloc_error(cmd_desc);
+            return err;
         }
         cmd_desc->cur = cmd_desc->cur->next;
     }
-    memcpy((uint8_t*) &cmd_desc->cur->cmd, (uint8_t*) cmd, sizeof(i2c_cmd_t));
+    memcpy((uint8_t *) &cmd_desc->cur->cmd, (uint8_t *) cmd, sizeof(i2c_cmd_t));
     cmd_desc->cur->next = NULL;
-    return ESP_OK;
-
-    err:
-    return ESP_FAIL;
+    return err;
 }
+
+//static esp_err_t i2c_cmd_link_append(i2c_cmd_handle_t cmd_handle, i2c_cmd_t* cmd)
+//{
+//    i2c_cmd_desc_t* cmd_desc = (i2c_cmd_desc_t*) cmd_handle;
+//    if (cmd_desc->head == NULL) {
+//#if !CONFIG_SPIRAM_USE_MALLOC
+//        cmd_desc->head = (i2c_cmd_link_t*) calloc(1, sizeof(i2c_cmd_link_t));
+//#else
+//        cmd_desc->head = (i2c_cmd_link_t*) heap_caps_calloc(1, sizeof(i2c_cmd_link_t), MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+//#endif
+//        if (cmd_desc->head == NULL) {
+//            printf("malloc size: %d\n",sizeof(i2c_cmd_link_t));
+//            ESP_LOGE(I2C_TAG, I2C_CMD_MALLOC_ERR_STR);
+//            goto err;
+//        }
+//        cmd_desc->cur = cmd_desc->head;
+//        cmd_desc->free = cmd_desc->head;
+//    } else {
+//#if !CONFIG_SPIRAM_USE_MALLOC
+//        cmd_desc->cur->next = (i2c_cmd_link_t*) calloc(1, sizeof(i2c_cmd_link_t));
+//#else
+//        cmd_desc->cur->next = (i2c_cmd_link_t*) heap_caps_calloc(1, sizeof(i2c_cmd_link_t), MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+//#endif
+//        if (cmd_desc->cur->next == NULL) {
+//            ESP_LOGE(I2C_TAG, I2C_CMD_MALLOC_ERR_STR);
+//            goto err;
+//        }
+//        cmd_desc->cur = cmd_desc->cur->next;
+//    }
+//    memcpy((uint8_t*) &cmd_desc->cur->cmd, (uint8_t*) cmd, sizeof(i2c_cmd_t));
+//    cmd_desc->cur->next = NULL;
+//    return ESP_OK;
+//
+//    err:
+//    return ESP_FAIL;
+//}
 
 esp_err_t i2c_master_start(i2c_cmd_handle_t cmd_handle)
 {
