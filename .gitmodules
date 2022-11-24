@@ -76,8 +76,8 @@
 	url = https://github.com/espressif/esp-nimble.git
 [submodule "components/miio_sdk"]
 	path = components/miio_sdk
-	url = https://github.com/Huwensong/miio_sdk
+	url = git@github.com:Plantsio/miio_sdk.git
 [submodule "components/arduino-esp32"]
 	path = components/arduino-esp32
-	url = https://github.com/Huwensong/arduino-esp32.git
+	url = git@github.com:Plantsio/arduino-esp32.git
 	branch = miot_arduino
