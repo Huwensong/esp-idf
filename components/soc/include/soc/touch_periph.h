@@ -16,11 +16,11 @@
 
 #include "soc/touch_channel.h"
 
-#define SOC_TOUCH_SENSOR_NUM                (10)
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define SOC_TOUCH_SENSOR_NUM                (10)
 
 extern const int touch_sensor_channel_io_map[SOC_TOUCH_SENSOR_NUM];
 

@@ -19,6 +19,7 @@ list(APPEND srcs
     "src/soc_include_legacy_warn.c"
     "src/hal/spi_flash_hal.c"
     "src/hal/spi_flash_hal_iram.c"
+    "esp32/touch_sensor_periph.c"
     )
 
 idf_component_register(SRCS "${srcs}"
