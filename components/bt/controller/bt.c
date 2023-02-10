@@ -1176,6 +1176,7 @@ esp_err_t esp_bt_controller_init(esp_bt_controller_config_t *cfg)
 {
     if (init_flag)
         return ESP_OK;
+    printf("esp_bt_controller_init called!!!!!\n");
     esp_err_t err;
     uint32_t btdm_cfg_mask = 0;
 
@@ -1352,8 +1353,16 @@ error:
     return err;
 }
 
+static bool deinit_flag = false;
 esp_err_t esp_bt_controller_deinit(void)
 {
+    if (deinit_flag)
+    {
+        deinit_flag = true;
+        return ESP_OK;
+    }
+
+    printf("esp_bt_controller_deinit called!!!\n");
     if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_INITED) {
         return ESP_ERR_INVALID_STATE;
     }
