@@ -55,7 +55,10 @@ typedef enum {
     SYSTEM_EVENT_ETH_CONNECTED,            /*!< ESP32 ethernet phy link up */
     SYSTEM_EVENT_ETH_DISCONNECTED,         /*!< ESP32 ethernet phy link down */
     SYSTEM_EVENT_ETH_GOT_IP,               /*!< ESP32 ethernet got IP from connected AP */
-    SYSTEM_EVENT_MAX                       /*!< Number of members in this enum */
+    SYSTEM_EVENT_ETH_LOST_IP,              /*!< ESP32 ethernet lost IP and the IP is reset to 0 */
+    SYSTEM_EVENT_ACTION_TX_STATUS,         /*!< Receive status of Action frame transmitted */
+    SYSTEM_EVENT_ROC_DONE,                 /*!< Indicates the completion of Remain-on-Channel operation status */
+    SYSTEM_EVENT_MAX,                       /*!< Number of members in this enum */
 } system_event_id_t;
 
 /* add this macro define for compatible with old IDF version */
@@ -146,6 +149,28 @@ typedef esp_err_t (*system_event_handler_t)(system_event_t *event);
   * @return others : fail
   */
 esp_err_t esp_event_send(system_event_t *event);
+
+/**
+  * @brief  Send a event to event task
+  *
+  * @note This API is used by WiFi Driver only.
+  *
+  * Other task/modules, such as the tcpip_adapter, can call this API to send an event to event task
+  *
+  * @param[in] event_base the event base that identifies the event
+  * @param[in] event_id the event id that identifies the event
+  * @param[in] event_data the data, specific to the event occurence, that gets passed to the handler
+  * @param[in] event_data_size the size of the event data
+  * @param[in] ticks_to_wait number of ticks to block on a full event queue
+  *
+  * @return ESP_OK : succeed
+  * @return others : fail
+  */
+esp_err_t esp_event_send_internal(esp_event_base_t event_base,
+                            int32_t event_id,
+                            void* event_data,
+                            size_t event_data_size,
+                            TickType_t ticks_to_wait);
 
 /**
  * @brief  Default event handler for system events

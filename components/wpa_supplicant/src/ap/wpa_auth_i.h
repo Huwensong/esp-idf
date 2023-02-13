@@ -118,6 +118,7 @@ struct wpa_state_machine {
 	int pending_1_of_4_timeout;
 	u32 index;
 	ETSTimer resend_eapol;
+	struct rsn_sppamsdu_sup spp_sup;
 };
 
 
@@ -182,17 +183,6 @@ int wpa_auth_for_each_auth(struct wpa_authenticator *wpa_auth,
 			   int (*cb)(struct wpa_authenticator *a, void *ctx),
 			   void *cb_ctx);
 
-#ifdef CONFIG_PEERKEY
-int wpa_stsl_remove(struct wpa_authenticator *wpa_auth,
-		    struct wpa_stsl_negotiation *neg);
-void wpa_smk_error(struct wpa_authenticator *wpa_auth,
-		   struct wpa_state_machine *sm, struct wpa_eapol_key *key);
-void wpa_smk_m1(struct wpa_authenticator *wpa_auth,
-		struct wpa_state_machine *sm, struct wpa_eapol_key *key);
-void wpa_smk_m3(struct wpa_authenticator *wpa_auth,
-		struct wpa_state_machine *sm, struct wpa_eapol_key *key);
-#endif /* CONFIG_PEERKEY */
-
 #ifdef CONFIG_IEEE80211R
 int wpa_write_mdie(struct wpa_auth_config *conf, u8 *buf, size_t len);
 int wpa_write_ftie(struct wpa_auth_config *conf, const u8 *r0kh_id,
@@ -201,7 +191,7 @@ int wpa_write_ftie(struct wpa_auth_config *conf, const u8 *r0kh_id,
 		   u8 *buf, size_t len, const u8 *subelem,
 		   size_t subelem_len);
 int wpa_auth_derive_ptk_ft(struct wpa_state_machine *sm, const u8 *pmk,
-			   struct wpa_ptk *ptk, size_t ptk_len);
+			   struct wpa_ptk *ptk);
 struct wpa_ft_pmk_cache * wpa_ft_pmk_cache_init(void);
 void wpa_ft_pmk_cache_deinit(struct wpa_ft_pmk_cache *cache);
 void wpa_ft_install_ptk(struct wpa_state_machine *sm);

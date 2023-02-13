@@ -16,7 +16,6 @@
 #define WPA_I_H
 
 struct install_key {
-    int mic_errors_seen; /* Michael MIC errors with the current PTK */
     int keys_cleared;
     enum wpa_alg alg;
     u8 addr[ETH_ALEN];
@@ -30,7 +29,7 @@ struct install_key {
  * struct wpa_sm - Internal WPA state machine data
  */
 struct wpa_sm {
-    u8 pmk[PMK_LEN];
+    u8 pmk[PMK_LEN_MAX];
     size_t pmk_len;
 
     struct wpa_ptk ptk, tptk;
@@ -43,6 +42,8 @@ struct wpa_sm {
     u8 request_counter[WPA_REPLAY_COUNTER_LEN];
     struct rsn_pmksa_cache *pmksa; /* PMKSA cache */
     struct rsn_pmksa_cache_entry *cur_pmksa; /* current PMKSA entry */
+    u8 ssid[32];
+    size_t ssid_len;
 
     unsigned int pairwise_cipher;
     unsigned int group_cipher;
@@ -51,12 +52,15 @@ struct wpa_sm {
     void *network_ctx;
 
     int rsn_enabled; /* Whether RSN is enabled in configuration */
+    int sae_pwe; /* SAE PWE generation options */
 
     int countermeasures; /*TKIP countermeasures state flag, 1:in countermeasures state*/
     ETSTimer  cm_timer;
 
     u8 *assoc_wpa_ie; /* Own WPA/RSN IE from (Re)AssocReq */
     size_t assoc_wpa_ie_len;
+    u8 *assoc_rsnxe; /* Own RSNXE from (Re)AssocReq */
+    size_t assoc_rsnxe_len;
 
     u8 eapol_version;
 
@@ -68,29 +72,30 @@ struct wpa_sm {
     unsigned int proto;
     enum wpa_states wpa_state;
 
-    u8 *ap_wpa_ie, *ap_rsn_ie;
-    size_t ap_wpa_ie_len, ap_rsn_ie_len;
+    u8 *ap_wpa_ie, *ap_rsn_ie, *ap_rsnxe;
+    size_t ap_wpa_ie_len, ap_rsn_ie_len, ap_rsnxe_len;
 
     bool key_install;
 
     struct install_key install_ptk;
     struct install_key install_gtk;
-    int  key_entry_valid;   //present current avaliable entry for bssid, for pairkey:0,5,10,15,20, gtk: pairkey_no+i (i:1~4)
-
+    int mic_errors_seen; /* Michael MIC errors with the current PTK */
+    int use_ext_key_id; /* Enabled only for WPA PSK first key exchange */
     void (* sendto) (void *buffer, uint16_t len);
     void (*config_assoc_ie) (u8 proto, u8 *assoc_buf, u32 assoc_wpa_ie_len);
     void (*install_ppkey) (enum wpa_alg alg, u8 *addr, int key_idx, int set_tx,
-               u8 *seq, unsigned int seq_len, u8 *key, unsigned int key_len, int key_entry_valid);
+               u8 *seq, unsigned int seq_len, u8 *key, unsigned int key_len, enum key_flag key_flag);
     int (*get_ppkey) (uint8_t *ifx, int *alg, uint8_t *addr, int *key_idx,
-               uint8_t *key, size_t key_len, int key_entry_valid);
+               uint8_t *key, size_t key_len, enum key_flag key_flag);
     void (*wpa_deauthenticate)(u8 reason_code);
-    void (*wpa_neg_complete)();
+    void (*wpa_neg_complete)(void);
     struct wpa_gtk_data gd; //used for calllback save param
     u16 key_info;       //used for txcallback param
     u16 txcb_flags;
     bool   ap_notify_completed_rsne;
     wifi_pmf_config_t pmf_cfg;
     u8 eapol1_count;
+    struct rsn_sppamsdu_sup spp_sup;
 };
 
 /**
@@ -144,13 +149,13 @@ typedef void (* WPA_SEND_FUNC)(void *buffer, u16 len);
 typedef void (* WPA_SET_ASSOC_IE)(u8 proto, u8 *assoc_buf, u32 assoc_wpa_ie_len);
 
 typedef void (*WPA_INSTALL_KEY) (enum wpa_alg alg, u8 *addr, int key_idx, int set_tx,
-               u8 *seq, size_t seq_len, u8 *key, size_t key_len, int key_entry_valid);
+               u8 *seq, size_t seq_len, u8 *key, size_t key_len, enum key_flag key_flag);
 
-typedef int (*WPA_GET_KEY) (u8 *ifx, int *alg, u8 *addt, int *keyidx, u8 *key, size_t key_len, int key_entry_valid);
+typedef int (*WPA_GET_KEY) (u8 *ifx, int *alg, u8 *addt, int *keyidx, u8 *key, size_t key_len, enum key_flag key_flag);
 
 typedef void (*WPA_DEAUTH_FUNC)(u8 reason_code);
 
-typedef void (*WPA_NEG_COMPLETE)();
+typedef void (*WPA_NEG_COMPLETE)(void);
 
 bool wpa_sm_init(char * payload, WPA_SEND_FUNC snd_func, \
         WPA_SET_ASSOC_IE set_assoc_ie_func, \
@@ -169,4 +174,3 @@ int wpa_set_bss(char *macddr, char * bssid, u8 pairwise_cipher, u8 group_cipher,
 
 int wpa_sm_rx_eapol(u8 *src_addr, u8 *buf, u32 len);
 #endif /* WPA_I_H */
-

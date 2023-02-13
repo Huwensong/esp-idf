@@ -754,7 +754,7 @@ static int eap_peap_phase2_request(struct eap_sm *sm,
 		wpabuf_free(data->pending_phase2_req);
 		data->pending_phase2_req = wpabuf_alloc_copy(hdr, len);
 	}
-/*	
+/*
     if (*resp == NULL &&
 	    (config->pending_req_identity || config->pending_req_password ||
 	     config->pending_req_otp || config->pending_req_new_password)) {
@@ -1042,10 +1042,9 @@ continue_req:
 }
 
 
-static struct wpabuf *
-eap_peap_process(struct eap_sm *sm, void *priv,
-		 struct eap_method_ret *ret,
-		 const struct wpabuf *reqData)
+static struct wpabuf * eap_peap_process(struct eap_sm *sm, void *priv,
+					struct eap_method_ret *ret,
+					const struct wpabuf *reqData)
 {
 	const struct eap_hdr *req;
 	size_t left;
@@ -1096,8 +1095,16 @@ eap_peap_process(struct eap_sm *sm, void *priv,
 						  data->peap_version, id, pos,
 						  left, &resp);
 
+		if (res < 0) {
+			wpa_printf(MSG_DEBUG,
+				   "EAP-PEAP: TLS processing failed");
+			ret->methodState = METHOD_DONE;
+			ret->decision = DECISION_FAIL;
+			return resp;
+		}
+
 		if (tls_connection_established(sm->ssl_ctx, data->ssl.conn)) {
-			char label[24];
+			char label[24] = {0};
 			wpa_printf(MSG_DEBUG, "EAP-PEAP: TLS done, proceed to Phase 2");
 			os_free(data->key_data);
 			/* draft-josefsson-ppext-eap-tls-eap-05.txt
@@ -1117,7 +1124,7 @@ eap_peap_process(struct eap_sm *sm, void *priv,
 				eap_peer_tls_derive_key(sm, &data->ssl, label,
 							EAP_TLS_KEY_LEN);
 			if (data->key_data) {
-				wpa_hexdump_key(MSG_DEBUG, 
+				wpa_hexdump_key(MSG_DEBUG,
 						"EAP-PEAP: Derived key",
 						data->key_data,
 						EAP_TLS_KEY_LEN);

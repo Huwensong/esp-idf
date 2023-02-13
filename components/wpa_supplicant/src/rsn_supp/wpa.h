@@ -15,7 +15,13 @@
 #ifndef WPA_H
 #define WPA_H
 
-#include "esp32/rom/ets_sys.h"
+#include "sdkconfig.h"
+
+#ifdef CONFIG_IDF_TARGET_ESP32
+#include "esp32/rom/ets_sys.h" // will be removed in idf v5.0
+#elif CONFIG_IDF_TARGET_ESP32S2
+#include "esp32s2/rom/ets_sys.h"
+#endif
 #include "utils/common.h"
 #include "common/defs.h"
 #include "common/wpa_common.h"
@@ -106,7 +112,7 @@ struct l2_ethhdr {
  * handler if send_eapol() is used.
  */
 
-#define KEYENTRY_TABLE_MAP(key_entry_valid)  ((key_entry_valid)%5) 
+#define KEYENTRY_TABLE_MAP(key_entry_valid)  ((key_entry_valid)%5)
 
 void pp_michael_mic_failure(u16 isunicast);
 
@@ -124,11 +130,18 @@ char * dup_binstr(const void *src, size_t len);
 
 int wpa_michael_mic_failure(u16 isunicast);
 
-wifi_cipher_type_t cipher_type_map_supp_to_public(uint32_t wpa_cipher);
+wifi_cipher_type_t cipher_type_map_supp_to_public(unsigned cipher);
 
-uint32_t cipher_type_map_supp_to_public(wifi_cipher_type_t cipher);
+unsigned cipher_type_map_public_to_supp(wifi_cipher_type_t cipher);
 
 void wpa_sta_clear_curr_pmksa(void);
 
-#endif /* WPA_H */
+int wpa_sm_set_ap_rsnxe(const u8 *ie, size_t len);
 
+int wpa_sm_set_assoc_rsnxe(struct wpa_sm *sm, const u8 *ie, size_t len);
+
+struct wpa_sm * get_wpa_sm(void);
+
+void wpa_sm_set_pmk_from_pmksa(struct wpa_sm *sm);
+
+#endif /* WPA_H */

@@ -156,6 +156,17 @@ static esp_partition_iterator_opaque_t* iterator_create(esp_partition_type_t typ
     return it;
 }
 
+void esp_rom_md5_init(struct MD5Context *context)
+{
+    context->buf[0] = 0x67452301;
+    context->buf[1] = 0xefcdab89;
+    context->buf[2] = 0x98badcfe;
+    context->buf[3] = 0x10325476;
+
+    context->bits[0] = 0;
+    context->bits[1] = 0;
+}
+
 // Create linked list of partition_list_item_t structures.
 // This function is called only once, with s_partition_list_lock taken.
 static esp_err_t load_partitions()
@@ -174,7 +185,7 @@ static esp_err_t load_partitions()
     uint8_t calc_md5[MD5_DIGEST_LEN];
     struct MD5Context context;
 
-    MD5Init(&context);
+    esp_rom_md5_init(&context);
 #endif
 
     // map 64kB block where partition table is located

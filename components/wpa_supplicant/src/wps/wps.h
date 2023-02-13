@@ -9,7 +9,11 @@
 #ifndef WPS_H
 #define WPS_H
 
-#include "esp32/rom/ets_sys.h"
+#if CONFIG_IDF_TARGET_ESP32
+#include "esp32/rom/ets_sys.h" // will be removed in idf v5.0
+#elif CONFIG_IDF_TARGET_ESP32S2
+#include "esp32s2/rom/ets_sys.h"
+#endif
 #include "wps_defs.h"
 #include "esp_wifi_types.h"
 
@@ -229,8 +233,8 @@ enum wps_process_res wps_process_msg(struct wps_data *wps,
 
 struct wpabuf * wps_get_msg(struct wps_data *wps, enum wsc_op_code *op_code);
 
-int wps_is_selected_pbc_registrar(const struct wpabuf *msg, u8 *bssid);
-int wps_is_selected_pin_registrar(const struct wpabuf *msg, u8 *bssid);
+int wps_is_selected_pbc_registrar(const struct wpabuf *msg);
+int wps_is_selected_pin_registrar(const struct wpabuf *msg);
 int wps_ap_priority_compar(const struct wpabuf *wps_a,
 			   const struct wpabuf *wps_b);
 int wps_is_addr_authorized(const struct wpabuf *msg, const u8 *addr,
@@ -1050,6 +1054,7 @@ struct wps_sm {
 #endif
     u8 discover_ssid_cnt;
     bool ignore_sel_reg;
+    bool wps_pin_war;
     struct discard_ap_list_t dis_ap_list[WPS_MAX_DIS_AP_NUM];
     u8 discard_ap_cnt;
     wifi_sta_config_t config;
@@ -1061,7 +1066,7 @@ struct wps_sm *wps_sm_get(void);
 int wps_ssid_save(u8 *ssid, u8 ssid_len, u8 idx);
 int wps_key_save(char *key, u8 key_len, u8 idx);
 int wps_station_wps_register_cb(wps_st_cb_t cb);
-int wps_station_wps_unregister_cb(void); 
+int wps_station_wps_unregister_cb(void);
 int wps_start_pending(void);
 int wps_sm_rx_eapol(u8 *src_addr, u8 *buf, u32 len);
 

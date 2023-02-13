@@ -19,9 +19,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "esp_err.h"
-#include "esp32/rom/ets_sys.h"
+#include "supplicant_opt.h"
 
-typedef long os_time_t;
+typedef time_t os_time_t;
 
 /**
  * os_sleep - Sleep (sec, usec)
@@ -32,10 +32,19 @@ void os_sleep(os_time_t sec, os_time_t usec);
 
 struct os_time {
 	os_time_t sec;
-	os_time_t usec;
+	suseconds_t usec;
 };
 
 #define os_reltime os_time
+
+struct os_tm {
+    int sec; /* 0..59 or 60 for leap seconds */
+    int min; /* 0..59 */
+    int hour; /* 0..23 */
+    int day; /* 1..31 */
+    int month; /* 1..12 */
+    int year; /* Four digit year */
+};
 
 /**
  * os_get_time - Get current time (sec, usec)
@@ -80,6 +89,7 @@ int os_get_time(struct os_time *t);
 int os_mktime(int year, int month, int day, int hour, int min, int sec,
 	      os_time_t *t);
 
+int os_gmtime(os_time_t t, struct os_tm *tm);
 
 /**
  * os_daemonize - Run in the background (detach from the controlling terminal)
@@ -192,7 +202,7 @@ char * os_readfile(const char *name, size_t *len);
  * OS_NO_C_LIB_DEFINES can be defined to skip all defines here in which case
  * these functions need to be implemented in os_*.c file for the target system.
  */
- 
+
 #ifndef os_malloc
 #define os_malloc(s) malloc((s))
 #endif
@@ -212,7 +222,7 @@ char * os_readfile(const char *name, size_t *len);
 
 #ifndef os_bzero
 #define os_bzero(s, n) bzero(s, n)
-#endif 
+#endif
 
 
 #ifndef os_strdup
@@ -279,6 +289,9 @@ char * ets_strdup(const char *s);
 #ifndef os_strlcpy
 #define os_strlcpy(d, s, n) strlcpy((d), (s), (n))
 #endif
+#ifndef os_strcat
+#define os_strcat(d, s) strcat((d), (s))
+#endif
 
 #ifndef os_snprintf
 #ifdef _MSC_VER
@@ -286,6 +299,9 @@ char * ets_strdup(const char *s);
 #else
 #define os_snprintf snprintf
 #endif
+#endif
+#ifndef os_sprintf
+#define os_sprintf sprintf
 #endif
 
 static inline int os_snprintf_error(size_t size, int res)
@@ -300,4 +316,26 @@ static inline void * os_realloc_array(void *ptr, size_t nmemb, size_t size)
 	return os_realloc(ptr, nmemb * size);
 }
 
+#ifdef USE_MBEDTLS_CRYPTO
+void forced_memzero(void *ptr, size_t len);
+#else
+/* Try to prevent most compilers from optimizing out clearing of memory that
+ * becomes unaccessible after this function is called. This is mostly the case
+ * for clearing local stack variables at the end of a function. This is not
+ * exactly perfect, i.e., someone could come up with a compiler that figures out
+ * the pointer is pointing to memset and then end up optimizing the call out, so
+ * try go a bit further by storing the first octet (now zero) to make this even
+ * a bit more difficult to optimize out. Once memset_s() is available, that
+ * could be used here instead. */
+static void * (* const volatile memset_func)(void *, int, size_t) = memset;
+static uint8_t forced_memzero_val;
+
+static inline void forced_memzero(void *ptr, size_t len)
+{
+	memset_func(ptr, 0, len);
+	if (len) {
+		forced_memzero_val = ((uint8_t *) ptr)[0];
+	}
+}
+#endif
 #endif /* OS_H */
