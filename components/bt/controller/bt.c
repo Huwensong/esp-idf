@@ -1171,8 +1171,11 @@ esp_err_t esp_bt_mem_release(esp_bt_mode_t mode)
     return ESP_OK;
 }
 
+static bool init_flag = false;
 esp_err_t esp_bt_controller_init(esp_bt_controller_config_t *cfg)
 {
+    if (init_flag)
+        return ESP_OK;
     esp_err_t err;
     uint32_t btdm_cfg_mask = 0;
 
@@ -1320,6 +1323,8 @@ esp_err_t esp_bt_controller_init(esp_bt_controller_config_t *cfg)
     #endif
 
     btdm_controller_status = ESP_BT_CONTROLLER_STATUS_INITED;
+
+    init_flag = true;
 
     return ESP_OK;
 
