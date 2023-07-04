@@ -8,11 +8,11 @@ else()
     set(port_arg "-p ${ESPPORT}")
 endif()
 
-set(ESPBAUD $ENV{ESPBAUD})
-if(NOT ESPBAUD)
-    message("Note: ${TOOL} will attempt to set baud rate automatically. "
-            "To specify a baud rate, set the ESPBAUD environment variable.")
-else()
-    set(baud_arg "-b ${ESPBAUD}")
-endif()
+#set(ESPBAUD $ENV{ESPBAUD})
+#if(NOT ESPBAUD)
+#    message("Note: ${TOOL} will attempt to set baud rate automatically. "
+#            "To specify a baud rate, set the ESPBAUD environment variable.")
+#else()
+#    set(baud_arg "-b ${ESPBAUD}")
+#endif()
 
