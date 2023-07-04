@@ -16,6 +16,8 @@ if(NOT IDF_MONITOR OR NOT ELF_FILE)
         "strongly recommended to run ${TOOL} directly.")
 endif()
 
+set(baud_arg "-b 115200")
+
 include("${CMAKE_CURRENT_LIST_DIR}/get_port_args.cmake")
 set(CMD "python ${IDF_MONITOR} ${port_arg} ${baud_arg} ${ELF_FILE}")
 include("${CMAKE_CURRENT_LIST_DIR}/run_cmd.cmake")

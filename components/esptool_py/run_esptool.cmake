@@ -16,6 +16,8 @@ if(NOT ESPTOOLPY OR NOT ESPTOOL_ARGS)
         "strongly recommended to run ${TOOL} directly.")
 endif()
 
+set(baud_arg "-b 921600")
+
 include("${CMAKE_CURRENT_LIST_DIR}/get_port_args.cmake")
 set(CMD "${ESPTOOLPY} ${port_arg} ${baud_arg} ${ESPTOOL_ARGS}")
 include("${CMAKE_CURRENT_LIST_DIR}/run_cmd.cmake")
