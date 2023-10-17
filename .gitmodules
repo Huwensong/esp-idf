@@ -78,7 +78,3 @@
 	path = components/arduino-esp32
 	url = git@github.com:Plantsio/arduino-esp32.git
 	branch = miot_arduino
-[submodule "components/miio_sdk"]
-	path = components/miio_sdk
-	url = git@github.com:Plantsio/miio_sdk.git
-	branch = main
